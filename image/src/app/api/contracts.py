@@ -118,6 +118,15 @@ async def upload_contract(
         original_file_name = file.filename
         file_ext_from_upload = os.path.splitext(original_file_name)[1].lower().lstrip('.')
         
+        # Validate file size (max 500KB for invoice validation projects)
+        content = await file.read()
+        max_size = 500 * 1024  # 500KB
+        if len(content) > max_size:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File size ({len(content)/1024:.1f}KB) exceeds maximum allowed size of 500KB. Please compress your PDF or use a smaller file."
+            )
+        
         # Use settings.ALLOWED_EXTENSIONS which should be a list of strings without dots
         # Example: ALLOWED_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg'] in config.py
         if file_ext_from_upload not in settings.ALLOWED_EXTENSIONS:
@@ -125,8 +134,6 @@ async def upload_contract(
                 status_code=400, 
                 detail=f"File type '{file_ext_from_upload}' not allowed. Allowed types: {', '.join(settings.ALLOWED_EXTENSIONS)}"
             )
-        
-        content = await file.read()
         
         # Handle file storage based on configuration
         if settings.use_s3_storage:

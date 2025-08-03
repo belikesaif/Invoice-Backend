@@ -46,6 +46,14 @@ async def process_invoice(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid base64 encoded file content")
         
+        # Validate file size (max 500KB for invoice validation projects)
+        max_size = 500 * 1024  # 500KB
+        if len(file_content) > max_size:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File size ({len(file_content)/1024:.1f}KB) exceeds maximum allowed size of 500KB. Please compress your PDF or use a smaller file."
+            )
+        
         # Process invoice to extract data using the DocumentProcessor
         processor = DocumentProcessor()
         stitched_content_bytes = processor.stitch_document(file_content, invoice_item.file_type)

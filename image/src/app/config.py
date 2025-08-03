@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     
     # File upload settings
     UPLOAD_DIR: str = "uploads" if not os.getenv("AWS_LAMBDA_FUNCTION_NAME") else "/tmp/uploads"
-    MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
-    ALLOWED_EXTENSIONS: set = {"pdf", "doc", "docx"}
+    MAX_FILE_SIZE: int = 500 * 1024  # 500KB for invoice validation projects
+    ALLOWED_EXTENSIONS: set = {"pdf", "doc", "docx", "jpg", "jpeg", "png"}
     
     # Authentication settings
     SECRET_KEY: str = "your-secret-key-change-in-production"
