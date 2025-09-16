@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+from pathlib import Path
 import uuid
 import os
 import json
@@ -23,10 +24,8 @@ async def get_contracts(db: Session = Depends(get_db), current_user: User = Depe
     """Get all contracts for the current user."""
     try:
         contracts = db.query(Contract).filter(Contract.user_id == current_user.id).all()
-        logger.info(f"Retrieved {len(contracts)} contracts for user {current_user.id}")
         return contracts
     except Exception as e:
-        logger.error(f"Error retrieving contracts for user {current_user.id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to retrieve contracts")
 
 @router.delete("/clear-all")
@@ -41,27 +40,27 @@ async def clear_all_contracts(db: Session = Depends(get_db), current_user: User 
             # Clean up any associated files if they exist
             if contract.document_path:
                 try:
-                    if settings.use_s3_storage:
-                        # Delete from S3
-                        s3_service.delete_file(contract.document_path)
-                        logger.info(f"Deleted contract file from S3: {contract.document_path}")
+                    if contract.document_path.startswith('s3://') or contract.document_path.startswith('uploads/'):
+                        # S3 file path
+                        s3_key = contract.document_path.replace('s3://', '').split('/', 1)[-1] if contract.document_path.startswith('s3://') else contract.document_path
+                        success = s3_service.delete_file(s3_key)
+                        if not success:
+                            pass
                     else:
-                        # Delete local file
-                        if os.path.exists(contract.document_path):
-                            os.remove(contract.document_path)
-                            logger.info(f"Deleted local contract file: {contract.document_path}")
+                        # Local file path
+                        local_path = Path(contract.document_path)
+                        if local_path.exists():
+                            local_path.unlink()
                 except Exception as file_error:
-                    logger.warning(f"Could not delete file {contract.document_path}: {str(file_error)}")
+                    pass
             
             db.delete(contract)
         
         db.commit()
         
-        logger.info(f"Cleared {len(contracts)} contracts for user {current_user.id}")
         return {"message": f"Successfully cleared {len(contracts)} contracts"}
         
     except Exception as e:
-        logger.error(f"Error clearing all contracts for user {current_user.id}: {str(e)}")
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to clear contracts")
 
@@ -103,7 +102,6 @@ async def create_contract(
         return contract
         
     except Exception as e:
-        logger.error(f"Error creating contract: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/upload", response_model=ContractResponse, status_code=201)
@@ -154,22 +152,18 @@ async def upload_contract(
         extracted_data_model = processor.process_contract(content, original_file_name)
         
         if extracted_data_model is None:
-            logger.error(f"Error processing contract: Failed to extract data for {original_file_name}")
             # This detail should reflect the error from DocumentProcessor if possible, 
             # or a generic one if DocumentProcessor returned None without specific error.
             raise HTTPException(status_code=400, detail=f"Failed to process contract file '{original_file_name}'. Document processing returned no data. Check logs for details.")
         
         supplier_name = extracted_data_model.supplier_name or "Unknown Supplier"
-        logger.info(f"Using extracted supplier name: {supplier_name}")
         
         extracted_items = extracted_data_model.items
         # Convert List[InvoiceItemModel from Pydantic model] to List[dict for DB]
         items_for_db = [item.model_dump() for item in extracted_items]
 
         if not items_for_db:
-            logger.warning(f"No items extracted from contract {original_file_name}, using empty list")
-        
-        logger.info(f"Extracted items for DB: {json.dumps(items_for_db)}")
+            pass
         
         contract_id_val = str(uuid.uuid4())
         db_contract = Contract(
@@ -187,14 +181,12 @@ async def upload_contract(
         db.commit()
         db.refresh(db_contract)
         
-        logger.info(f"Contract uploaded and processed: {db_contract.id}")
         return db_contract
         
     except HTTPException as http_exc:
         # Re-raise HTTPException to ensure FastAPI handles it correctly
         raise http_exc
     except Exception as e:
-        logger.error(f"Error uploading contract '{file.filename if file else 'nofile'}': {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error during contract upload: {str(e)}")
 
 @router.delete("/{contract_id}")
@@ -211,21 +203,18 @@ async def delete_contract(contract_id: str, db: Session = Depends(get_db), curre
                 if settings.use_s3_storage:
                     # Delete from S3
                     s3_service.delete_file(contract.document_path)
-                    logger.info(f"Deleted contract file from S3: {contract.document_path}")
                 else:
                     # Delete local file
                     if os.path.exists(contract.document_path):
                         os.remove(contract.document_path)
-                        logger.info(f"Deleted local contract file: {contract.document_path}")
             except Exception as e_file_delete:
-                logger.error(f"Error deleting contract file {contract.document_path}: {e_file_delete}")
                 # Log error but don't prevent contract deletion
+                pass
 
         db.delete(contract)
         db.commit()
         return {"message": "Contract deleted successfully"}
     except Exception as e:
-        logger.error(f"Error deleting contract ID {contract_id}: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{contract_id}", response_model=ContractResponse)
@@ -252,5 +241,4 @@ async def update_contract(
         
         return contract
     except Exception as e:
-        logger.error(f"Error updating contract {contract_id}: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))

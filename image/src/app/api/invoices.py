@@ -13,8 +13,6 @@ from ..services.document_processor import DocumentProcessor
 from ..middleware.auth_middleware import get_current_user
 from ..config import settings
 
-from loguru import logger
-
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
 class InvoiceItem(BaseModel):
@@ -59,7 +57,6 @@ async def process_invoice(
         stitched_content_bytes = processor.stitch_document(file_content, invoice_item.file_type)
         
         if stitched_content_bytes is None:
-            logger.error(f"Failed to stitch document for file type: {invoice_item.file_type}")
             raise HTTPException(status_code=500, detail=f"Failed to process document: Could not convert or stitch file type '{invoice_item.file_type}'")
 
         # Now, process the stitched PNG image content
@@ -67,7 +64,6 @@ async def process_invoice(
         extracted_invoice_model = await processor.process_invoice_async(stitched_content_bytes, 'png', skip_type_check=True)
         
         if extracted_invoice_model is None:
-            logger.error(f"Processing the stitched PNG image returned no data.")
             raise HTTPException(status_code=500, detail="Failed to extract data from the processed document.")
         
         try:
@@ -87,7 +83,6 @@ async def process_invoice(
             db.add(db_invoice)
             db.commit()
             db.refresh(db_invoice)
-            logger.info(f"Processed invoice data saved to DB with ID: {db_invoice.id}")
             
             return InvoiceResponse(
                 id=db_invoice.id,
@@ -103,15 +98,12 @@ async def process_invoice(
             )
             
         except Exception as db_error:
-            logger.error(f"Error saving processed invoice to database: {db_error}")
             db.rollback()
             raise HTTPException(status_code=500, detail="Failed to save processed invoice data.")
         
     except ValueError as e:
-        logger.error(f"Validation error in process_invoice: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Error processing invoice: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/", response_model=dict)
