@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     # File upload settings
     UPLOAD_DIR: str = "uploads" if not os.getenv("AWS_LAMBDA_FUNCTION_NAME") else "/tmp/uploads"
     MAX_FILE_SIZE: int = 500 * 1024  # 500KB for invoice validation projects
-    ALLOWED_EXTENSIONS: set = {"pdf", "doc", "docx", "jpg", "jpeg", "png"}
+    ALLOWED_EXTENSIONS: List[str] = ["pdf", "doc", "docx", "jpg", "jpeg", "png"]
     
     # Authentication settings
     SECRET_KEY: str = "your-secret-key-change-in-production"
@@ -71,7 +71,18 @@ class Settings(BaseSettings):
     @property
     def use_s3_storage(self) -> bool:
         """Determine if we should use S3 for file storage."""
-        return self.IS_AWS_LAMBDA or self.AWS_S3_BUCKET is not None
+        # Only use S3 if we're in AWS Lambda OR if we have both bucket and credentials
+        if self.IS_AWS_LAMBDA:
+            return True
+        
+        # For local development, only use S3 if we have proper credentials
+        has_credentials = (
+            self.AWS_ACCESS_KEY_ID is not None and 
+            self.AWS_SECRET_ACCESS_KEY is not None and
+            self.AWS_S3_BUCKET is not None
+        )
+        
+        return has_credentials
     
     class Config:
         env_file = ".env"
@@ -83,4 +94,14 @@ def create_directories():
     Path(settings.LOG_FILE).parent.mkdir(parents=True, exist_ok=True)
 
 settings = Settings()
-create_directories() 
+create_directories()
+
+# Log storage configuration for debugging
+if __name__ != "__main__":  # Only log when imported, not when running directly
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Storage configuration: use_s3_storage={settings.use_s3_storage}")
+    if settings.use_s3_storage:
+        logger.info(f"Using S3 storage with bucket: {settings.AWS_S3_BUCKET}")
+    else:
+        logger.info(f"Using local storage in directory: {settings.UPLOAD_DIR}") 
